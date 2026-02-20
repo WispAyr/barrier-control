@@ -420,6 +420,64 @@ body {
   animation: none;
 }
 
+/* ─── Board Badges (Header) ───────────────────────────────────────────────── */
+.board-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ─── Boards Overview ─────────────────────────────────────────────────────── */
+.board-section {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.board-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.board-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.board-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.board-status-dot.online {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green-glow);
+}
+
+.board-status-dot.offline {
+  background: var(--red);
+  box-shadow: 0 0 8px var(--red-glow);
+}
+
+.board-mode {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 2px 8px;
+  background: var(--bg-secondary);
+  border-radius: 100px;
+  border: 1px solid var(--border);
+}
+
 /* ─── Channels Panel ──────────────────────────────────────────────────────── */
 .channels-panel {
   background: var(--bg-card);

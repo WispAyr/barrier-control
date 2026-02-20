@@ -37,113 +37,16 @@
           <p class="header-subtitle">Car Park Management</p>
         </div>
       </div>
-      <div class="connection-badge" id="connectionBadge">
-        <span class="connection-dot"></span>
-        <span class="connection-text">Connecting…</span>
+      <div class="header-right">
+        <div class="board-badges" id="boardBadges"></div>
       </div>
     </div>
   </header>
 
   <!-- Main Content -->
   <main class="main">
-    <div class="barriers-grid">
-
-      <!-- Barrier 1 -->
-      <section class="barrier-card" data-barrier="1">
-        <div class="barrier-header">
-          <div class="barrier-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="4" height="18" rx="1" />
-              <path d="M7 12h14" />
-              <path d="M17 8l4 4-4 4" />
-            </svg>
-          </div>
-          <div>
-            <h2>Barrier 1</h2>
-            <span class="barrier-status" id="barrier1Status">Idle</span>
-          </div>
-        </div>
-
-        <div class="channel-indicators" id="barrier1Channels">
-          <div class="indicator" data-channel="1"><span class="ind-dot"></span>CH1 Lift</div>
-          <div class="indicator" data-channel="2"><span class="ind-dot"></span>CH2 Close</div>
-          <div class="indicator" data-channel="3"><span class="ind-dot"></span>CH3 Stop</div>
-        </div>
-
-        <div class="barrier-controls">
-          <button class="btn btn-lift" onclick="barrierAction(1, 'lift')" id="btn-1-lift">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 19V5M5 12l7-7 7 7" />
-            </svg>
-            Lift
-          </button>
-          <button class="btn btn-stop" onclick="barrierAction(1, 'stop')" id="btn-1-stop">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round">
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
-            Stop
-          </button>
-          <button class="btn btn-close" onclick="barrierAction(1, 'close')" id="btn-1-close">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5V19M5 12l7 7 7-7" />
-            </svg>
-            Close
-          </button>
-        </div>
-      </section>
-
-      <!-- Barrier 2 -->
-      <section class="barrier-card" data-barrier="2">
-        <div class="barrier-header">
-          <div class="barrier-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="4" height="18" rx="1" />
-              <path d="M7 12h14" />
-              <path d="M17 8l4 4-4 4" />
-            </svg>
-          </div>
-          <div>
-            <h2>Barrier 2</h2>
-            <span class="barrier-status" id="barrier2Status">Idle</span>
-          </div>
-        </div>
-
-        <div class="channel-indicators" id="barrier2Channels">
-          <div class="indicator" data-channel="4"><span class="ind-dot"></span>CH4 Lift</div>
-          <div class="indicator" data-channel="5"><span class="ind-dot"></span>CH5 Close</div>
-          <div class="indicator" data-channel="6"><span class="ind-dot"></span>CH6 Stop</div>
-        </div>
-
-        <div class="barrier-controls">
-          <button class="btn btn-lift" onclick="barrierAction(2, 'lift')" id="btn-2-lift">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 19V5M5 12l7-7 7 7" />
-            </svg>
-            Lift
-          </button>
-          <button class="btn btn-stop" onclick="barrierAction(2, 'stop')" id="btn-2-stop">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round">
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
-            Stop
-          </button>
-          <button class="btn btn-close" onclick="barrierAction(2, 'close')" id="btn-2-close">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5V19M5 12l7 7 7-7" />
-            </svg>
-            Close
-          </button>
-        </div>
-      </section>
-
+    <div class="barriers-grid" id="barriersGrid">
+      <!-- Populated by JS -->
     </div>
 
     <!-- Emergency All Off -->
@@ -156,12 +59,10 @@
       EMERGENCY — ALL OFF
     </button>
 
-    <!-- Raw Channels Panel -->
-    <section class="channels-panel">
-      <h3>Relay Channels</h3>
-      <div class="channels-grid" id="channelsGrid">
-        <!-- Populated by JS -->
-      </div>
+    <!-- Boards Overview -->
+    <section class="channels-panel" id="boardsPanel">
+      <h3>Relay Boards</h3>
+      <div id="boardsOverview"></div>
     </section>
   </main>
 
