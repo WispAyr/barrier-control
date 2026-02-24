@@ -18,17 +18,17 @@ export const BARRIERS: BarrierConfig[] = [
   {
     id: 'krs-entry', numericId: 1, name: 'Entry Barrier', site: 'KRS01', direction: 'entry',
     relay: { host: '10.10.10.64', port: 4196 },
-    coils: { lift: 0, stop: 1, close: 2 },
+    coils: { lift: 0, stop: 1, close: 2 },  // TODO: needs physical verification — sensor issue
   },
   {
     id: 'krs-exit', numericId: 2, name: 'Exit Barrier', site: 'KRS01', direction: 'exit',
     relay: { host: '10.10.10.64', port: 4196 },
-    coils: { lift: 3, stop: 4, close: 5 },
+    coils: { lift: 3, stop: 5, close: 4 },  // Confirmed 2026-02-24: close=4, stop=5 (were swapped)
   },
   {
     id: 'krs-combo', numericId: 3, name: 'Entry/Exit Barrier', site: 'KRS01', direction: 'both',
     relay: { host: '10.10.10.65', port: 4196 },
-    coils: { lift: 4, stop: 5, close: 3 },
+    coils: { lift: 4, stop: 5, close: 3 },  // Confirmed 2026-02-24
   },
 ];
 
