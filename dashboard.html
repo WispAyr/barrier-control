@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Barrier Control — Status</title>
+<style>
+  :root { --bg: #0a0e17; --card: #111827; --border: #1e293b; --text: #e2e8f0; --dim: #64748b; --green: #22c55e; --red: #ef4444; --amber: #eab308; --blue: #3b82f6; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; padding: 20px; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .subtitle { color: var(--dim); font-size: 0.75rem; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card h3 { font-size: 0.85rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.err { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .dot.warn { background: var(--amber); }
+  .dot.unknown { background: var(--dim); }
+  .stat { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+  .stat:last-child { border: none; }
+  .stat .label { color: var(--dim); }
+  .stat .value { font-weight: 600; font-family: 'SF Mono', monospace; }
+  .coils { display: flex; gap: 12px; margin-top: 8px; }
+  .coil { display: flex; align-items: center; gap: 4px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .coil .dot { width: 6px; height: 6px; }
+
+  /* Services row */
+  .services { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .svc { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center; }
+  .svc .name { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .svc .status { font-size: 0.85rem; font-weight: 600; }
+  .svc .latency { font-size: 0.65rem; color: var(--dim); margin-top: 2px; }
+
+  /* Log */
+  .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .log-header h2 { font-size: 1rem; }
+  .log-filters { display: flex; gap: 8px; }
+  .log-filters select, .log-filters input { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; }
+  .log-table { width: 100%; border-collapse: collapse; }
+  .log-table th { text-align: left; padding: 6px 10px; font-size: 0.65rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid var(--border); }
+  .log-table td { padding: 5px 10px; font-size: 0.78rem; border-bottom: 1px solid #1a2332; }
+  .log-table tr:hover { background: rgba(255,255,255,0.02); }
+  .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 0.65rem; font-weight: 600; }
+  .tag-lift { background: rgba(34,197,94,0.15); color: var(--green); }
+  .tag-close { background: rgba(239,68,68,0.15); color: var(--red); }
+  .tag-stop { background: rgba(249,115,22,0.15); color: #f97316; }
+  .tag-lock { background: rgba(139,92,246,0.15); color: #8b5cf6; }
+  .tag-emergency { background: rgba(220,38,38,0.25); color: #fca5a5; }
+  .tag-heartbeat { background: rgba(59,130,246,0.15); color: var(--blue); }
+  .tag-error { background: rgba(239,68,68,0.15); color: var(--red); }
+  .mono { font-family: 'SF Mono', Menlo, monospace; }
+  .refresh-badge { font-size: 0.65rem; color: var(--dim); }
+  .heartbeat-bar { display: flex; gap: 2px; align-items: center; margin-top: 4px; }
+  .hb-tick { width: 4px; height: 16px; border-radius: 1px; }
+</style>
+</head>
+<body>
+
+<h1>🚧 Barrier Control</h1>
+<p class="subtitle">Service Status & Activity Log — <span id="clock"></span> · <span class="refresh-badge">auto-refresh 3s</span></p>
+
+<!-- Service Health -->
+<div class="services" id="services"></div>
+
+<!-- Barrier Cards -->
+<div class="grid" id="barriers"></div>
+
+<!-- Activity Log -->
+<div class="card" style="margin-bottom:20px">
+  <div class="log-header">
+    <h2>📋 Activity Log</h2>
+    <div class="log-filters">
+      <select id="filter-barrier"><option value="">All barriers</option></select>
+      <select id="filter-type">
+        <option value="">All types</option>
+        <option value="lift">Lift</option>
+        <option value="close">Close</option>
+        <option value="stop">Stop</option>
+        <option value="lock">Lock</option>
+        <option value="unlock">Unlock</option>
+        <option value="emergency-off">Emergency</option>
+        <option value="heartbeat">Heartbeat</option>
+        <option value="error">Error</option>
+      </select>
+      <input type="text" id="filter-search" placeholder="Search..." style="width:140px">
+    </div>
+  </div>
+  <div style="max-height:500px; overflow:auto">
+    <table class="log-table">
+      <thead><tr><th>Time</th><th>Type</th><th>Barrier</th><th>Details</th><th>Latency</th></tr></thead>
+      <tbody id="log-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const API = '';
+let logEntries = [];
+let heartbeatHistory = {}; // barrierId -> last 30 results
+
+function $(id) { return document.getElementById(id); }
+
+function formatTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleTimeString('en-GB', { hour12: false });
+}
+
+function dotClass(ok) { return ok ? 'dot ok' : 'dot err'; }
+
+function tagClass(type) {
+  if (type === 'emergency-off') return 'tag tag-emergency';
+  if (type === 'error') return 'tag tag-error';
+  if (type === 'heartbeat') return 'tag tag-heartbeat';
+  if (type === 'lock' || type === 'unlock') return 'tag tag-lock';
+  return `tag tag-${type}`;
+}
+
+async function checkService(name, url) {
+  const t0 = performance.now();
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const ms = Math.round(performance.now() - t0);
+    const ok = r.ok;
+    return { name, ok, ms, status: ok ? 'Online' : `HTTP ${r.status}` };
+  } catch (e) {
+    return { name, ok: false, ms: null, status: 'Offline' };
+  }
+}
+
+async function fetchServices() {
+  const checks = await Promise.all([
+    checkService('Barrier Control', '/api/health'),
+    checkService('SentryFlow', '/api/svc/sentryflow'),
+    checkService('Relay .64', '/api/svc/relay/10.10.10.64'),
+    checkService('Relay .65', '/api/svc/relay/10.10.10.65'),
+  ]);
+  $('services').innerHTML = checks.map(s => `
+    <div class="svc">
+      <div class="name">${s.name}</div>
+      <div class="status" style="color:${s.ok ? 'var(--green)' : 'var(--red)'}">
+        <span class="${dotClass(s.ok)}"></span> ${s.status}
+      </div>
+      ${s.ms !== null ? `<div class="latency">${s.ms}ms</div>` : ''}
+    </div>
+  `).join('');
+}
+
+async function fetchBarriers() {
+  try {
+    const r = await fetch('/api/status');
+    const data = await r.json();
+    $('barriers').innerHTML = (data.barriers || []).map(b => {
+      const hasError = !!b.error;
+      const coils = b.coils || {};
+      // Track heartbeat
+      if (!heartbeatHistory[b.id]) heartbeatHistory[b.id] = [];
+      heartbeatHistory[b.id].push(!hasError);
+      if (heartbeatHistory[b.id].length > 30) heartbeatHistory[b.id].shift();
+      const hbTicks = heartbeatHistory[b.id].map(ok =>
+        `<div class="hb-tick" style="background:${ok ? 'var(--green)' : 'var(--red)'}"></div>`
+      ).join('');
+
+      return `<div class="card" style="border-color:${hasError ? 'var(--red)' : 'var(--border)'}40">
+        <h3><span class="${dotClass(!hasError)}"></span> ${b.name || b.id} <span style="font-size:0.65rem;color:var(--dim);font-weight:400">${b.direction || ''}</span></h3>
+        ${hasError ? `<div style="color:var(--red);font-size:0.8rem">⚠ ${b.error}</div>` : `
+          <div class="stat"><span class="label">ID</span><span class="value mono">${b.id}</span></div>
+          <div class="stat"><span class="label">Numeric</span><span class="value">${b.numericId}</span></div>
+          <div class="stat"><span class="label">Site</span><span class="value">${b.site}</span></div>
+          <div class="stat"><span class="label">Locked</span><span class="value" style="color:${b.locked ? 'var(--amber)' : 'var(--green)'}">${b.locked ? '🔒 Yes' : 'No'}</span></div>
+          <div class="stat"><span class="label">Last Action</span><span class="value">${b.lastAction || '—'}</span></div>
+          <div class="stat"><span class="label">Last Time</span><span class="value">${formatTime(b.lastActionTime)}</span></div>
+          <div class="coils">
+            <div class="coil"><span class="dot ${coils.lift ? 'ok' : ''}" style="${!coils.lift ? 'background:var(--border)' : ''}"></span> Lift</div>
+            <div class="coil"><span class="dot ${coils.stop ? 'warn' : ''}" style="${!coils.stop ? 'background:var(--border)' : ''}"></span> Stop</div>
+            <div class="coil"><span class="dot ${coils.close ? 'err' : ''}" style="${!coils.close ? 'background:var(--border)' : ''}"></span> Close</div>
+          </div>
+        `}
+        <div class="heartbeat-bar" title="Last 30 polls">${hbTicks}</div>
+      </div>`;
+    }).join('');
+
+    // Add heartbeat log entries
+    (data.barriers || []).forEach(b => {
+      addLog('heartbeat', b.id || b.name, b.error ? `Error: ${b.error}` : `coils: L=${b.coils?.lift?1:0} S=${b.coils?.stop?1:0} C=${b.coils?.close?1:0}`, null);
+    });
+  } catch (e) {
+    $('barriers').innerHTML = `<div class="card" style="border-color:var(--red)40"><h3><span class="dot err"></span> Failed to fetch</h3><p style="color:var(--red);font-size:0.8rem">${e.message}</p></div>`;
+  }
+}
+
+function addLog(type, barrier, details, latency) {
+  logEntries.unshift({ time: new Date().toISOString(), type, barrier, details, latency });
+  if (logEntries.length > 500) logEntries.pop();
+  renderLog();
+}
+
+function renderLog() {
+  const fBarrier = $('filter-barrier').value;
+  const fType = $('filter-type').value;
+  const fSearch = $('filter-search').value.toLowerCase();
+  const filtered = logEntries.filter(e => {
+    if (fBarrier && e.barrier !== fBarrier) return false;
+    if (fType && e.type !== fType) return false;
+    if (fSearch && !JSON.stringify(e).toLowerCase().includes(fSearch)) return false;
+    return true;
+  });
+  $('log-body').innerHTML = filtered.slice(0, 200).map(e => `
+    <tr>
+      <td class="mono" style="white-space:nowrap">${formatTime(e.time)}</td>
+      <td><span class="${tagClass(e.type)}">${e.type.toUpperCase()}</span></td>
+      <td>${e.barrier || '—'}</td>
+      <td style="color:var(--dim)">${e.details || ''}</td>
+      <td class="mono" style="color:var(--dim)">${e.latency ? e.latency + 'ms' : ''}</td>
+    </tr>
+  `).join('');
+}
+
+function updateClock() {
+  $('clock').textContent = new Date().toLocaleTimeString('en-GB', { hour12: false });
+}
+
+// Populate barrier filter
+async function initFilters() {
+  try {
+    const r = await fetch('/api/status');
+    const data = await r.json();
+    const sel = $('filter-barrier');
+    (data.barriers || []).forEach(b => {
+      const o = document.createElement('option');
+      o.value = b.id;
+      o.textContent = b.name || b.id;
+      sel.appendChild(o);
+    });
+  } catch {}
+}
+
+$('filter-barrier').onchange = renderLog;
+$('filter-type').onchange = renderLog;
+$('filter-search').oninput = renderLog;
+
+// Boot
+initFilters();
+fetchServices();
+fetchBarriers();
+updateClock();
+setInterval(updateClock, 1000);
+setInterval(() => { fetchServices(); fetchBarriers(); }, 3000);
+</script>
+</body>
+</html>
