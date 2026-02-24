@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Barrier Control — Status</title>
 <style>
-  :root { --bg: #0a0e17; --card: #111827; --border: #1e293b; --text: #e2e8f0; --dim: #64748b; --green: #22c55e; --red: #ef4444; --amber: #eab308; --blue: #3b82f6; }
+  :root { --bg: #0a0e17; --card: #111827; --border: #1e293b; --text: #e2e8f0; --dim: #64748b; --green: #22c55e; --red: #ef4444; --amber: #eab308; --blue: #3b82f6; --orange: #f97316; --purple: #8b5cf6; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; padding: 20px; }
   h1 { font-size: 1.4rem; margin-bottom: 4px; }
@@ -17,21 +17,47 @@
   .dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
   .dot.err { background: var(--red); box-shadow: 0 0 6px var(--red); }
   .dot.warn { background: var(--amber); }
-  .dot.unknown { background: var(--dim); }
   .stat { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
   .stat:last-child { border: none; }
   .stat .label { color: var(--dim); }
   .stat .value { font-weight: 600; font-family: 'SF Mono', monospace; }
-  .coils { display: flex; gap: 12px; margin-top: 8px; }
+  .coils { display: flex; gap: 12px; margin: 8px 0; }
   .coil { display: flex; align-items: center; gap: 4px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
   .coil .dot { width: 6px; height: 6px; }
 
-  /* Services row */
   .services { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
   .svc { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center; }
   .svc .name { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
   .svc .status { font-size: 0.85rem; font-weight: 600; }
   .svc .latency { font-size: 0.65rem; color: var(--dim); margin-top: 2px; }
+
+  /* Buttons */
+  .btn { border: none; border-radius: 6px; padding: 8px 12px; font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+  .btn:hover { filter: brightness(1.2); }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; filter: none; }
+  .btn-lift { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+  .btn-close { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+  .btn-stop { background: rgba(249,115,22,0.15); color: var(--orange); border: 1px solid rgba(249,115,22,0.3); }
+  .btn-lock { background: rgba(139,92,246,0.15); color: var(--purple); border: 1px solid rgba(139,92,246,0.3); }
+  .btn-group { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+
+  /* Emergency bar */
+  .emergency-bar { display: flex; gap: 10px; margin-bottom: 20px; padding: 12px 16px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; align-items: center; }
+  .emergency-bar .label { font-size: 0.75rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; margin-right: auto; }
+  .btn-emergency { padding: 10px 20px; font-size: 0.85rem; letter-spacing: 0.03em; }
+  .btn-emergency-lift { background: rgba(34,197,94,0.2); color: var(--green); border: 2px solid var(--green); box-shadow: 0 0 12px rgba(34,197,94,0.3); }
+  .btn-emergency-close { background: rgba(239,68,68,0.2); color: var(--red); border: 2px solid var(--red); box-shadow: 0 0 12px rgba(239,68,68,0.3); }
+  .btn-emergency-off { background: rgba(239,68,68,0.3); color: #fca5a5; border: 2px solid var(--red); box-shadow: 0 0 16px rgba(239,68,68,0.4); }
+
+  .latch-indicator { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+  .latch-open { background: rgba(34,197,94,0.2); color: var(--green); border: 1px solid var(--green); animation: pulse-green 2s infinite; }
+  .latch-closed { background: rgba(239,68,68,0.2); color: var(--red); border: 1px solid var(--red); animation: pulse-red 2s infinite; }
+  @keyframes pulse-green { 0%,100% { box-shadow: 0 0 4px rgba(34,197,94,0.3); } 50% { box-shadow: 0 0 12px rgba(34,197,94,0.6); } }
+  @keyframes pulse-red { 0%,100% { box-shadow: 0 0 4px rgba(239,68,68,0.3); } 50% { box-shadow: 0 0 12px rgba(239,68,68,0.6); } }
+
+  .heartbeat-bar { display: flex; gap: 2px; align-items: center; margin-top: 8px; }
+  .hb-tick { width: 4px; height: 16px; border-radius: 1px; }
 
   /* Log */
   .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -45,21 +71,34 @@
   .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 0.65rem; font-weight: 600; }
   .tag-lift { background: rgba(34,197,94,0.15); color: var(--green); }
   .tag-close { background: rgba(239,68,68,0.15); color: var(--red); }
-  .tag-stop { background: rgba(249,115,22,0.15); color: #f97316; }
-  .tag-lock { background: rgba(139,92,246,0.15); color: #8b5cf6; }
-  .tag-emergency { background: rgba(220,38,38,0.25); color: #fca5a5; }
+  .tag-stop { background: rgba(249,115,22,0.15); color: var(--orange); }
+  .tag-lock, .tag-unlock { background: rgba(139,92,246,0.15); color: var(--purple); }
+  .tag-emergency-off, .tag-emergency-lift, .tag-emergency-close { background: rgba(220,38,38,0.25); color: #fca5a5; }
+  .tag-latch-open, .tag-latch-close { background: rgba(234,179,8,0.15); color: var(--amber); }
   .tag-heartbeat { background: rgba(59,130,246,0.15); color: var(--blue); }
   .tag-error { background: rgba(239,68,68,0.15); color: var(--red); }
+  .tag-startup { background: rgba(139,92,246,0.15); color: var(--purple); }
   .mono { font-family: 'SF Mono', Menlo, monospace; }
   .refresh-badge { font-size: 0.65rem; color: var(--dim); }
-  .heartbeat-bar { display: flex; gap: 2px; align-items: center; margin-top: 4px; }
-  .hb-tick { width: 4px; height: 16px; border-radius: 1px; }
+
+  .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; z-index: 100; transition: opacity 0.3s; }
+  .toast.ok { background: rgba(34,197,94,0.9); color: #fff; }
+  .toast.fail { background: rgba(239,68,68,0.9); color: #fff; }
 </style>
 </head>
 <body>
 
 <h1>🚧 Barrier Control</h1>
-<p class="subtitle">Service Status & Activity Log — <span id="clock"></span> · <span class="refresh-badge">auto-refresh 3s</span></p>
+<p class="subtitle">Service Status & Control Panel — <span id="clock"></span> · <span class="refresh-badge">auto-refresh 3s</span></p>
+
+<!-- Emergency Bar -->
+<div class="emergency-bar">
+  <span class="label">⚡ Emergency Controls</span>
+  <span id="latch-status"></span>
+  <button class="btn btn-emergency btn-emergency-lift" onclick="emergencyLift()">▲ EMERGENCY LIFT ALL</button>
+  <button class="btn btn-emergency btn-emergency-close" onclick="emergencyClose()">▼ EMERGENCY CLOSE ALL</button>
+  <button class="btn btn-emergency btn-emergency-off" onclick="emergencyOff()">⚡ KILL ALL COILS</button>
+</div>
 
 <!-- Service Health -->
 <div class="services" id="services"></div>
@@ -80,7 +119,11 @@
         <option value="stop">Stop</option>
         <option value="lock">Lock</option>
         <option value="unlock">Unlock</option>
-        <option value="emergency-off">Emergency</option>
+        <option value="latch-open">Latch Open</option>
+        <option value="latch-close">Latch Close</option>
+        <option value="emergency-off">Emergency Off</option>
+        <option value="emergency-lift">Emergency Lift</option>
+        <option value="emergency-close">Emergency Close</option>
         <option value="heartbeat">Heartbeat</option>
         <option value="error">Error</option>
       </select>
@@ -95,27 +138,113 @@
   </div>
 </div>
 
+<div id="toast" class="toast" style="opacity:0"></div>
+
 <script>
-const API = '';
 let logEntries = [];
-let heartbeatHistory = {}; // barrierId -> last 30 results
+let heartbeatHistory = {};
+let latchState = {}; // barrierId -> 'open' | null
 
 function $(id) { return document.getElementById(id); }
+function formatTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-GB', { hour12: false }) : '—'; }
+function dotClass(ok) { return ok ? 'dot ok' : 'dot err'; }
+function tagClass(type) { return `tag tag-${type}`; }
 
-function formatTime(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return d.toLocaleTimeString('en-GB', { hour12: false });
+function toast(msg, ok) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = `toast ${ok ? 'ok' : 'fail'}`;
+  t.style.opacity = 1;
+  setTimeout(() => { t.style.opacity = 0; }, 2500);
 }
 
-function dotClass(ok) { return ok ? 'dot ok' : 'dot err'; }
+async function barrierAction(id, action) {
+  try {
+    const r = await fetch(`/api/barrier/${id}/${action}`, { method: 'POST' });
+    const d = await r.json();
+    if (r.ok) { toast(`${action.toUpperCase()} → ${id}`, true); addLog(action, id, `Manual ${action}`, null); }
+    else toast(`Failed: ${d.error}`, false);
+  } catch (e) { toast(`Error: ${e.message}`, false); }
+  fetchBarriers();
+}
 
-function tagClass(type) {
-  if (type === 'emergency-off') return 'tag tag-emergency';
-  if (type === 'error') return 'tag tag-error';
-  if (type === 'heartbeat') return 'tag tag-heartbeat';
-  if (type === 'lock' || type === 'unlock') return 'tag tag-lock';
-  return `tag tag-${type}`;
+async function toggleLock(id, currentlyLocked) {
+  const action = currentlyLocked ? 'unlock' : 'lock';
+  await barrierAction(id, action);
+}
+
+async function latchOpen(id) {
+  // Lift + lock = latched open (can't be closed by automation)
+  try {
+    await fetch(`/api/barrier/${id}/lift`, { method: 'POST' });
+    await fetch(`/api/barrier/${id}/lock`, { method: 'POST' });
+    latchState[id] = 'open';
+    toast(`LATCHED OPEN → ${id}`, true);
+    addLog('latch-open', id, 'Barrier lifted and locked open', null);
+  } catch (e) { toast(`Latch failed: ${e.message}`, false); }
+  fetchBarriers();
+}
+
+async function latchClose(id) {
+  try {
+    await fetch(`/api/barrier/${id}/unlock`, { method: 'POST' });
+    await fetch(`/api/barrier/${id}/close`, { method: 'POST' });
+    await fetch(`/api/barrier/${id}/lock`, { method: 'POST' });
+    latchState[id] = 'closed';
+    toast(`LATCHED CLOSED → ${id}`, true);
+    addLog('latch-close', id, 'Barrier closed and locked', null);
+  } catch (e) { toast(`Latch failed: ${e.message}`, false); }
+  fetchBarriers();
+}
+
+async function unlatch(id) {
+  try {
+    await fetch(`/api/barrier/${id}/unlock`, { method: 'POST' });
+    latchState[id] = null;
+    toast(`UNLATCHED → ${id}`, true);
+    addLog('unlock', id, 'Barrier unlatched — automation can resume', null);
+  } catch (e) { toast(`Unlatch failed: ${e.message}`, false); }
+  fetchBarriers();
+}
+
+async function emergencyLift() {
+  if (!confirm('⚠️ EMERGENCY LIFT: This will OPEN and LATCH ALL barriers. Continue?')) return;
+  addLog('emergency-lift', 'ALL', '⚠️ Emergency lift — all barriers opening and latching');
+  for (const b of window._barriers || []) {
+    try {
+      await fetch(`/api/barrier/${b.id}/lift`, { method: 'POST' });
+      await fetch(`/api/barrier/${b.id}/lock`, { method: 'POST' });
+      latchState[b.id] = 'open';
+    } catch {}
+  }
+  toast('ALL BARRIERS LIFTED & LATCHED', true);
+  fetchBarriers();
+}
+
+async function emergencyClose() {
+  if (!confirm('⚠️ EMERGENCY CLOSE: This will CLOSE and LATCH ALL barriers. Continue?')) return;
+  addLog('emergency-close', 'ALL', '⚠️ Emergency close — all barriers closing and latching');
+  for (const b of window._barriers || []) {
+    try {
+      await fetch(`/api/barrier/${b.id}/unlock`, { method: 'POST' });
+      await fetch(`/api/barrier/${b.id}/close`, { method: 'POST' });
+      await fetch(`/api/barrier/${b.id}/lock`, { method: 'POST' });
+      latchState[b.id] = 'closed';
+    } catch {}
+  }
+  toast('ALL BARRIERS CLOSED & LATCHED', true);
+  fetchBarriers();
+}
+
+async function emergencyOff() {
+  if (!confirm('⚡ KILL ALL COILS: This cuts power to ALL relay boards immediately. Are you sure?')) return;
+  addLog('emergency-off', 'ALL', '⚡ Emergency OFF — all coils killed');
+  try {
+    await fetch('/api/emergency-off', { method: 'POST' });
+    latchState = {};
+    toast('ALL COILS KILLED', true);
+  } catch (e) { toast(`Failed: ${e.message}`, false); }
+  fetchBarriers();
 }
 
 async function checkService(name, url) {
@@ -123,11 +252,8 @@ async function checkService(name, url) {
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
     const ms = Math.round(performance.now() - t0);
-    const ok = r.ok;
-    return { name, ok, ms, status: ok ? 'Online' : `HTTP ${r.status}` };
-  } catch (e) {
-    return { name, ok: false, ms: null, status: 'Offline' };
-  }
+    return { name, ok: r.ok, ms, status: r.ok ? 'Online' : `HTTP ${r.status}` };
+  } catch { return { name, ok: false, ms: null, status: 'Offline' }; }
 }
 
 async function fetchServices() {
@@ -152,10 +278,21 @@ async function fetchBarriers() {
   try {
     const r = await fetch('/api/status');
     const data = await r.json();
+    window._barriers = data.barriers || [];
+
+    // Update latch status display
+    const anyLatched = Object.values(latchState).some(v => v);
+    $('latch-status').innerHTML = anyLatched
+      ? Object.entries(latchState).filter(([,v]) => v).map(([id, state]) =>
+          `<span class="latch-indicator ${state === 'open' ? 'latch-open' : 'latch-closed'}">${id}: ${state}</span>`
+        ).join(' ')
+      : '<span style="font-size:0.7rem;color:var(--dim)">No latches active</span>';
+
     $('barriers').innerHTML = (data.barriers || []).map(b => {
       const hasError = !!b.error;
       const coils = b.coils || {};
-      // Track heartbeat
+      const isLatched = latchState[b.id];
+
       if (!heartbeatHistory[b.id]) heartbeatHistory[b.id] = [];
       heartbeatHistory[b.id].push(!hasError);
       if (heartbeatHistory[b.id].length > 30) heartbeatHistory[b.id].shift();
@@ -163,13 +300,19 @@ async function fetchBarriers() {
         `<div class="hb-tick" style="background:${ok ? 'var(--green)' : 'var(--red)'}"></div>`
       ).join('');
 
-      return `<div class="card" style="border-color:${hasError ? 'var(--red)' : 'var(--border)'}40">
-        <h3><span class="${dotClass(!hasError)}"></span> ${b.name || b.id} <span style="font-size:0.65rem;color:var(--dim);font-weight:400">${b.direction || ''}</span></h3>
-        ${hasError ? `<div style="color:var(--red);font-size:0.8rem">⚠ ${b.error}</div>` : `
+      const dirIcon = { entry: '⬇️', exit: '⬆️', both: '↕️' }[b.direction] || '';
+
+      return `<div class="card" style="border-color:${hasError ? 'var(--red)' : isLatched === 'open' ? 'var(--green)' : isLatched === 'closed' ? 'var(--red)' : 'var(--border)'}40">
+        <h3>
+          <span class="${dotClass(!hasError)}"></span>
+          ${b.name || b.id}
+          <span style="font-size:0.65rem;color:var(--dim);font-weight:400">${dirIcon} ${b.direction || ''}</span>
+          ${isLatched ? `<span class="latch-indicator ${isLatched === 'open' ? 'latch-open' : 'latch-closed'}">LATCHED ${isLatched.toUpperCase()}</span>` : ''}
+          ${b.locked && !isLatched ? '<span style="font-size:0.65rem;color:var(--purple)">🔒 LOCKED</span>' : ''}
+        </h3>
+        ${hasError ? `<div style="color:var(--red);font-size:0.8rem;margin-bottom:8px">⚠ ${b.error}</div>` : `
           <div class="stat"><span class="label">ID</span><span class="value mono">${b.id}</span></div>
-          <div class="stat"><span class="label">Numeric</span><span class="value">${b.numericId}</span></div>
-          <div class="stat"><span class="label">Site</span><span class="value">${b.site}</span></div>
-          <div class="stat"><span class="label">Locked</span><span class="value" style="color:${b.locked ? 'var(--amber)' : 'var(--green)'}">${b.locked ? '🔒 Yes' : 'No'}</span></div>
+          <div class="stat"><span class="label">Latency</span><span class="value" style="color:${(b.latencyMs||0) > 500 ? 'var(--amber)' : 'var(--green)'}">${b.latencyMs || '—'}ms</span></div>
           <div class="stat"><span class="label">Last Action</span><span class="value">${b.lastAction || '—'}</span></div>
           <div class="stat"><span class="label">Last Time</span><span class="value">${formatTime(b.lastActionTime)}</span></div>
           <div class="coils">
@@ -178,14 +321,33 @@ async function fetchBarriers() {
             <div class="coil"><span class="dot ${coils.close ? 'err' : ''}" style="${!coils.close ? 'background:var(--border)' : ''}"></span> Close</div>
           </div>
         `}
+
+        <div class="btn-group">
+          <button class="btn btn-lift" onclick="barrierAction('${b.id}','lift')" ${b.locked ? 'disabled' : ''}>▲ Lift</button>
+          <button class="btn btn-stop" onclick="barrierAction('${b.id}','stop')">⏸ Stop</button>
+          <button class="btn btn-close" onclick="barrierAction('${b.id}','close')" ${b.locked ? 'disabled' : ''}>▼ Close</button>
+        </div>
+        <div class="btn-group">
+          ${isLatched
+            ? `<button class="btn btn-lock" onclick="unlatch('${b.id}')">🔓 Unlatch</button>`
+            : `<button class="btn btn-lift" onclick="latchOpen('${b.id}')" style="flex:1">▲ Latch Open</button>
+               <button class="btn btn-close" onclick="latchClose('${b.id}')" style="flex:1">▼ Latch Closed</button>`
+          }
+          ${!isLatched ? `<button class="btn btn-lock" onclick="toggleLock('${b.id}', ${!!b.locked})">${b.locked ? '🔓 Unlock' : '🔒 Lock'}</button>` : ''}
+        </div>
+
         <div class="heartbeat-bar" title="Last 30 polls">${hbTicks}</div>
       </div>`;
     }).join('');
 
-    // Add heartbeat log entries
-    (data.barriers || []).forEach(b => {
-      addLog('heartbeat', b.id || b.name, b.error ? `Error: ${b.error}` : `coils: L=${b.coils?.lift?1:0} S=${b.coils?.stop?1:0} C=${b.coils?.close?1:0}`, null);
-    });
+    // Heartbeat log (only every 10th poll to avoid flood)
+    if (!window._hbCount) window._hbCount = 0;
+    window._hbCount++;
+    if (window._hbCount % 10 === 0) {
+      (data.barriers || []).forEach(b => {
+        addLog('heartbeat', b.id, b.error ? `Error: ${b.error}` : `L=${b.coils?.lift?1:0} S=${b.coils?.stop?1:0} C=${b.coils?.close?1:0} ${b.latencyMs}ms`, null);
+      });
+    }
   } catch (e) {
     $('barriers').innerHTML = `<div class="card" style="border-color:var(--red)40"><h3><span class="dot err"></span> Failed to fetch</h3><p style="color:var(--red);font-size:0.8rem">${e.message}</p></div>`;
   }
@@ -218,11 +380,8 @@ function renderLog() {
   `).join('');
 }
 
-function updateClock() {
-  $('clock').textContent = new Date().toLocaleTimeString('en-GB', { hour12: false });
-}
+function updateClock() { $('clock').textContent = new Date().toLocaleTimeString('en-GB', { hour12: false }); }
 
-// Populate barrier filter
 async function initFilters() {
   try {
     const r = await fetch('/api/status');
@@ -237,14 +396,26 @@ async function initFilters() {
   } catch {}
 }
 
+// Also load server-side log on boot
+async function loadServerLog() {
+  try {
+    const r = await fetch('/api/log?limit=200');
+    const data = await r.json();
+    (data.entries || []).reverse().forEach(e => {
+      logEntries.push({ time: e.time, type: e.type, barrier: e.barrier, details: e.details, latency: e.latencyMs });
+    });
+    renderLog();
+  } catch {}
+}
+
 $('filter-barrier').onchange = renderLog;
 $('filter-type').onchange = renderLog;
 $('filter-search').oninput = renderLog;
 
-// Boot
 initFilters();
 fetchServices();
 fetchBarriers();
+loadServerLog();
 updateClock();
 setInterval(updateClock, 1000);
 setInterval(() => { fetchServices(); fetchBarriers(); }, 3000);
