@@ -55,11 +55,19 @@ function findBarrier(barrierId: string): BarrierConfig | undefined {
   return BARRIERS.find(b => b.id === barrierId);
 }
 
-const PULSE_MS = 1500; // pulse duration — barrier controllers need momentary trigger, not held coil
+const PULSE_MS = 1500; // pulse duration for normal operations
 
-async function activateCoil(barrier: BarrierConfig, action: 'lift' | 'stop' | 'close'): Promise<void> {
+// Track which barriers have coils latched (held on)
+const latchedCoils = new Map<string, NodeJS.Timeout | null>(); // barrierId -> null means held indefinitely
+
+async function activateCoil(barrier: BarrierConfig, action: 'lift' | 'stop' | 'close', hold = false): Promise<void> {
   const { host, port } = barrier.relay;
   const coils = barrier.coils;
+
+  // Cancel any existing latch timeout for this barrier
+  const existingTimeout = latchedCoils.get(barrier.id);
+  if (existingTimeout) clearTimeout(existingTimeout);
+  latchedCoils.delete(barrier.id);
 
   // Clear all coils first
   await writeMultipleCoils(host, port, [
@@ -71,19 +79,42 @@ async function activateCoil(barrier: BarrierConfig, action: 'lift' | 'stop' | 'c
   // Small gap to ensure clean transition
   await new Promise(r => setTimeout(r, 50));
 
-  // Pulse the target coil
+  // Set the target coil
   const targetCoil = coils[action];
   await writeCoil(host, port, targetCoil, true);
 
-  // Auto-release after pulse duration
-  setTimeout(async () => {
-    try {
-      await writeCoil(host, port, targetCoil, false);
-      log('pulse-off', barrier.id, `${action} coil auto-released after ${PULSE_MS}ms`);
-    } catch (err: any) {
-      log('error', barrier.id, `Failed to release ${action} coil: ${err.message}`);
-    }
-  }, PULSE_MS);
+  if (hold) {
+    // Hold coil on indefinitely (latch mode)
+    latchedCoils.set(barrier.id, null);
+    log('latch', barrier.id, `${action} coil HELD ON (latched)`);
+  } else {
+    // Auto-release after pulse duration
+    const timeout = setTimeout(async () => {
+      try {
+        await writeCoil(host, port, targetCoil, false);
+        latchedCoils.delete(barrier.id);
+        log('pulse-off', barrier.id, `${action} coil auto-released after ${PULSE_MS}ms`);
+      } catch (err: any) {
+        log('error', barrier.id, `Failed to release ${action} coil: ${err.message}`);
+      }
+    }, PULSE_MS);
+    latchedCoils.set(barrier.id, timeout);
+  }
+}
+
+// Release a latched coil
+async function releaseLatch(barrier: BarrierConfig): Promise<void> {
+  const { host, port } = barrier.relay;
+  const coils = barrier.coils;
+  const existingTimeout = latchedCoils.get(barrier.id);
+  if (existingTimeout) clearTimeout(existingTimeout);
+  latchedCoils.delete(barrier.id);
+  await writeMultipleCoils(host, port, [
+    { coil: coils.lift, value: false },
+    { coil: coils.stop, value: false },
+    { coil: coils.close, value: false },
+  ]);
+  log('unlatch', barrier.id, 'All coils released');
 }
 
 // ── Dashboard ──
@@ -235,6 +266,58 @@ for (const action of ['lift', 'close', 'stop'] as const) {
     }
   });
 }
+
+// ── Latch endpoints (hold coil on) ──
+app.post('/api/barrier/:barrierId/latch-open', async (req, res) => {
+  const barrier = findBarrier(req.params.barrierId);
+  if (!barrier) return res.status(404).json({ error: 'Barrier not found' });
+  try {
+    await activateCoil(barrier, 'lift', true);
+    const state = barrierStates.get(barrier.id)!;
+    state.lastAction = 'latch-open';
+    state.lastActionTime = new Date().toISOString();
+    state.locked = true;
+    log('latch-open', barrier.id, 'Barrier LATCHED OPEN — coil held, commands locked');
+    res.json({ ok: true, barrierId: barrier.id, action: 'latch-open' });
+  } catch (err: any) {
+    log('error', barrier.id, `Latch open failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/barrier/:barrierId/latch-close', async (req, res) => {
+  const barrier = findBarrier(req.params.barrierId);
+  if (!barrier) return res.status(404).json({ error: 'Barrier not found' });
+  try {
+    await activateCoil(barrier, 'close', true);
+    const state = barrierStates.get(barrier.id)!;
+    state.lastAction = 'latch-close';
+    state.lastActionTime = new Date().toISOString();
+    state.locked = true;
+    log('latch-close', barrier.id, 'Barrier LATCHED CLOSED — coil held, commands locked');
+    res.json({ ok: true, barrierId: barrier.id, action: 'latch-close' });
+  } catch (err: any) {
+    log('error', barrier.id, `Latch close failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/barrier/:barrierId/unlatch', async (req, res) => {
+  const barrier = findBarrier(req.params.barrierId);
+  if (!barrier) return res.status(404).json({ error: 'Barrier not found' });
+  try {
+    await releaseLatch(barrier);
+    const state = barrierStates.get(barrier.id)!;
+    state.lastAction = 'unlatch';
+    state.lastActionTime = new Date().toISOString();
+    state.locked = false;
+    log('unlatch', barrier.id, 'Barrier UNLATCHED — coils released, commands unlocked');
+    res.json({ ok: true, barrierId: barrier.id, action: 'unlatch' });
+  } catch (err: any) {
+    log('error', barrier.id, `Unlatch failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── Lock/unlock ──
 app.post('/api/barrier/:barrierId/lock', (req, res) => {

@@ -174,65 +174,52 @@ async function toggleLock(id, currentlyLocked) {
 }
 
 async function latchOpen(id) {
-  // Lift + lock = latched open (can't be closed by automation)
   try {
-    await fetch(`/api/barrier/${id}/lift`, { method: 'POST' });
-    await fetch(`/api/barrier/${id}/lock`, { method: 'POST' });
-    latchState[id] = 'open';
-    toast(`LATCHED OPEN → ${id}`, true);
-    addLog('latch-open', id, 'Barrier lifted and locked open', null);
+    const r = await fetch(`/api/barrier/${id}/latch-open`, { method: 'POST' });
+    const d = await r.json();
+    if (r.ok) { toast(`LATCHED OPEN → ${id}`, true); addLog('latch-open', id, 'Coil held on — barrier latched open', null); }
+    else toast(`Failed: ${d.error}`, false);
   } catch (e) { toast(`Latch failed: ${e.message}`, false); }
   fetchBarriers();
 }
 
 async function latchClose(id) {
   try {
-    await fetch(`/api/barrier/${id}/unlock`, { method: 'POST' });
-    await fetch(`/api/barrier/${id}/close`, { method: 'POST' });
-    await fetch(`/api/barrier/${id}/lock`, { method: 'POST' });
-    latchState[id] = 'closed';
-    toast(`LATCHED CLOSED → ${id}`, true);
-    addLog('latch-close', id, 'Barrier closed and locked', null);
+    const r = await fetch(`/api/barrier/${id}/latch-close`, { method: 'POST' });
+    const d = await r.json();
+    if (r.ok) { toast(`LATCHED CLOSED → ${id}`, true); addLog('latch-close', id, 'Coil held on — barrier latched closed', null); }
+    else toast(`Failed: ${d.error}`, false);
   } catch (e) { toast(`Latch failed: ${e.message}`, false); }
   fetchBarriers();
 }
 
 async function unlatch(id) {
   try {
-    await fetch(`/api/barrier/${id}/unlock`, { method: 'POST' });
-    latchState[id] = null;
-    toast(`UNLATCHED → ${id}`, true);
-    addLog('unlock', id, 'Barrier unlatched — automation can resume', null);
+    const r = await fetch(`/api/barrier/${id}/unlatch`, { method: 'POST' });
+    const d = await r.json();
+    if (r.ok) { toast(`UNLATCHED → ${id}`, true); addLog('unlatch', id, 'Coils released — barrier unlatched', null); }
+    else toast(`Failed: ${d.error}`, false);
   } catch (e) { toast(`Unlatch failed: ${e.message}`, false); }
   fetchBarriers();
 }
 
 async function emergencyLift() {
-  if (!confirm('⚠️ EMERGENCY LIFT: This will OPEN and LATCH ALL barriers. Continue?')) return;
-  addLog('emergency-lift', 'ALL', '⚠️ Emergency lift — all barriers opening and latching');
+  if (!confirm('⚠️ EMERGENCY LIFT: This will OPEN and LATCH ALL barriers with coils held. Continue?')) return;
+  addLog('emergency-lift', 'ALL', '⚠️ Emergency lift — all barriers latching open');
   for (const b of window._barriers || []) {
-    try {
-      await fetch(`/api/barrier/${b.id}/lift`, { method: 'POST' });
-      await fetch(`/api/barrier/${b.id}/lock`, { method: 'POST' });
-      latchState[b.id] = 'open';
-    } catch {}
+    try { await fetch(`/api/barrier/${b.id}/latch-open`, { method: 'POST' }); } catch {}
   }
-  toast('ALL BARRIERS LIFTED & LATCHED', true);
+  toast('ALL BARRIERS LATCHED OPEN', true);
   fetchBarriers();
 }
 
 async function emergencyClose() {
-  if (!confirm('⚠️ EMERGENCY CLOSE: This will CLOSE and LATCH ALL barriers. Continue?')) return;
-  addLog('emergency-close', 'ALL', '⚠️ Emergency close — all barriers closing and latching');
+  if (!confirm('⚠️ EMERGENCY CLOSE: This will CLOSE and LATCH ALL barriers with coils held. Continue?')) return;
+  addLog('emergency-close', 'ALL', '⚠️ Emergency close — all barriers latching closed');
   for (const b of window._barriers || []) {
-    try {
-      await fetch(`/api/barrier/${b.id}/unlock`, { method: 'POST' });
-      await fetch(`/api/barrier/${b.id}/close`, { method: 'POST' });
-      await fetch(`/api/barrier/${b.id}/lock`, { method: 'POST' });
-      latchState[b.id] = 'closed';
-    } catch {}
+    try { await fetch(`/api/barrier/${b.id}/latch-close`, { method: 'POST' }); } catch {}
   }
-  toast('ALL BARRIERS CLOSED & LATCHED', true);
+  toast('ALL BARRIERS LATCHED CLOSED', true);
   fetchBarriers();
 }
 
