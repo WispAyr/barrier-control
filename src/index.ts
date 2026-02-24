@@ -99,38 +99,53 @@ app.get('/api/log', (req, res) => {
   res.json({ entries: entries.slice(0, limit), total: entries.length });
 });
 
-// ── Status - all barriers ──
+// ── Status - all barriers (serialized per relay board) ──
 app.get('/api/status', async (_req, res) => {
   try {
-    const results = await Promise.allSettled(
-      BARRIERS.map(async (b) => {
-        const t0 = Date.now();
-        const { host, port } = b.relay;
-        const minCoil = Math.min(b.coils.lift, b.coils.stop, b.coils.close);
-        const maxCoil = Math.max(b.coils.lift, b.coils.stop, b.coils.close);
-        const count = maxCoil - minCoil + 1;
-        const coilStates = await readCoils(host, port, minCoil, count);
-        const ms = Date.now() - t0;
-        const state = barrierStates.get(b.id)!;
-        return {
-          id: b.id, numericId: b.numericId, name: b.name, site: b.site, direction: b.direction,
-          coils: {
-            lift: coilStates[b.coils.lift - minCoil],
-            stop: coilStates[b.coils.stop - minCoil],
-            close: coilStates[b.coils.close - minCoil],
-          },
-          locked: state.locked,
-          lastAction: state.lastAction,
-          lastActionTime: state.lastActionTime,
-          latencyMs: ms,
-        };
+    // Group barriers by relay board to serialize reads on same connection
+    const byRelay = new Map<string, typeof BARRIERS>();
+    for (const b of BARRIERS) {
+      const k = `${b.relay.host}:${b.relay.port}`;
+      if (!byRelay.has(k)) byRelay.set(k, []);
+      byRelay.get(k)!.push(b);
+    }
+
+    const results = new Map<string, any>();
+
+    // Read each relay board's barriers serially, but boards in parallel
+    await Promise.allSettled(
+      Array.from(byRelay.entries()).map(async ([_relayKey, boardBarriers]) => {
+        for (const b of boardBarriers) {
+          const t0 = Date.now();
+          try {
+            const { host, port } = b.relay;
+            const minCoil = Math.min(b.coils.lift, b.coils.stop, b.coils.close);
+            const maxCoil = Math.max(b.coils.lift, b.coils.stop, b.coils.close);
+            const count = maxCoil - minCoil + 1;
+            const coilStates = await readCoils(host, port, minCoil, count);
+            const ms = Date.now() - t0;
+            const state = barrierStates.get(b.id)!;
+            results.set(b.id, {
+              id: b.id, numericId: b.numericId, name: b.name, site: b.site, direction: b.direction,
+              coils: {
+                lift: coilStates[b.coils.lift - minCoil],
+                stop: coilStates[b.coils.stop - minCoil],
+                close: coilStates[b.coils.close - minCoil],
+              },
+              locked: state.locked,
+              lastAction: state.lastAction,
+              lastActionTime: state.lastActionTime,
+              latencyMs: ms,
+            });
+          } catch (err: any) {
+            log('error', b.id, `Status read failed: ${err.message}`);
+            results.set(b.id, { id: b.id, numericId: b.numericId, name: b.name, error: err.message });
+          }
+        }
       })
     );
-    const barriers = results.map((r, i) => {
-      if (r.status === 'fulfilled') return r.value;
-      log('error', BARRIERS[i].id, `Status read failed: ${(r.reason as Error).message}`);
-      return { id: BARRIERS[i].id, numericId: BARRIERS[i].numericId, name: BARRIERS[i].name, error: (r.reason as Error).message };
-    });
+
+    const barriers = BARRIERS.map(b => results.get(b.id) || { id: b.id, error: 'Unknown' });
     res.json({ barriers });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
