@@ -15,13 +15,28 @@ interface LogEntry {
   details: string;
   latencyMs?: number;
 }
-const MAX_LOG = 1000;
+const MAX_LOG = 2000;
 const eventLog: LogEntry[] = [];
+const LOG_FILE = path.join(__dirname, '..', 'data', 'activity.jsonl');
+
+// Load persisted log on startup
+try {
+  fs.mkdirSync(path.join(__dirname, '..', 'data'), { recursive: true });
+  if (fs.existsSync(LOG_FILE)) {
+    const lines = fs.readFileSync(LOG_FILE, 'utf-8').trim().split('\n').filter(Boolean);
+    for (const line of lines.slice(-MAX_LOG)) {
+      try { eventLog.push(JSON.parse(line)); } catch {}
+    }
+    eventLog.reverse(); // newest first
+  }
+} catch {}
 
 function log(type: string, barrier: string, details: string, latencyMs?: number) {
   const entry: LogEntry = { time: new Date().toISOString(), type, barrier, details, latencyMs };
   eventLog.unshift(entry);
   if (eventLog.length > MAX_LOG) eventLog.pop();
+  // Persist
+  try { fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n'); } catch {}
   console.log(`[barrier] [${type}] ${barrier}: ${details}${latencyMs ? ` (${latencyMs}ms)` : ''}`);
 }
 

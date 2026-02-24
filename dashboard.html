@@ -340,14 +340,11 @@ async function fetchBarriers() {
       </div>`;
     }).join('');
 
-    // Heartbeat log (only every 10th poll to avoid flood)
-    if (!window._hbCount) window._hbCount = 0;
-    window._hbCount++;
-    if (window._hbCount % 10 === 0) {
-      (data.barriers || []).forEach(b => {
-        addLog('heartbeat', b.id, b.error ? `Error: ${b.error}` : `L=${b.coils?.lift?1:0} S=${b.coils?.stop?1:0} C=${b.coils?.close?1:0} ${b.latencyMs}ms`, null);
-      });
-    }
+    // Only log failures — not routine heartbeats
+    (data.barriers || []).forEach(b => {
+      if (b.error) addLog('error', b.id, `Heartbeat failed: ${b.error}`, null);
+      else if ((b.latencyMs || 0) > 1000) addLog('error', b.id, `Slow response: ${b.latencyMs}ms`, b.latencyMs);
+    });
   } catch (e) {
     $('barriers').innerHTML = `<div class="card" style="border-color:var(--red)40"><h3><span class="dot err"></span> Failed to fetch</h3><p style="color:var(--red);font-size:0.8rem">${e.message}</p></div>`;
   }
