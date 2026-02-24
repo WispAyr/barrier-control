@@ -55,15 +55,35 @@ function findBarrier(barrierId: string): BarrierConfig | undefined {
   return BARRIERS.find(b => b.id === barrierId);
 }
 
+const PULSE_MS = 1500; // pulse duration — barrier controllers need momentary trigger, not held coil
+
 async function activateCoil(barrier: BarrierConfig, action: 'lift' | 'stop' | 'close'): Promise<void> {
   const { host, port } = barrier.relay;
   const coils = barrier.coils;
-  const writes = [
-    { coil: coils.lift, value: action === 'lift' },
-    { coil: coils.stop, value: action === 'stop' },
-    { coil: coils.close, value: action === 'close' },
-  ];
-  await writeMultipleCoils(host, port, writes);
+
+  // Clear all coils first
+  await writeMultipleCoils(host, port, [
+    { coil: coils.lift, value: false },
+    { coil: coils.stop, value: false },
+    { coil: coils.close, value: false },
+  ]);
+
+  // Small gap to ensure clean transition
+  await new Promise(r => setTimeout(r, 50));
+
+  // Pulse the target coil
+  const targetCoil = coils[action];
+  await writeCoil(host, port, targetCoil, true);
+
+  // Auto-release after pulse duration
+  setTimeout(async () => {
+    try {
+      await writeCoil(host, port, targetCoil, false);
+      log('pulse-off', barrier.id, `${action} coil auto-released after ${PULSE_MS}ms`);
+    } catch (err: any) {
+      log('error', barrier.id, `Failed to release ${action} coil: ${err.message}`);
+    }
+  }, PULSE_MS);
 }
 
 // ── Dashboard ──

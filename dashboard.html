@@ -328,12 +328,12 @@ async function fetchBarriers() {
           <button class="btn btn-close" onclick="barrierAction('${b.id}','close')" ${b.locked ? 'disabled' : ''}>▼ Close</button>
         </div>
         <div class="btn-group">
-          ${isLatched
-            ? `<button class="btn btn-lock" onclick="unlatch('${b.id}')">🔓 Unlatch</button>`
+          ${b.locked
+            ? `<button class="btn btn-lock" onclick="toggleLock('${b.id}', true)" style="flex:1">🔓 Unlock</button>`
             : `<button class="btn btn-lift" onclick="latchOpen('${b.id}')" style="flex:1">▲ Latch Open</button>
-               <button class="btn btn-close" onclick="latchClose('${b.id}')" style="flex:1">▼ Latch Closed</button>`
+               <button class="btn btn-close" onclick="latchClose('${b.id}')" style="flex:1">▼ Latch Closed</button>
+               <button class="btn btn-lock" onclick="toggleLock('${b.id}', false)">🔒 Lock</button>`
           }
-          ${!isLatched ? `<button class="btn btn-lock" onclick="toggleLock('${b.id}', ${!!b.locked})">${b.locked ? '🔓 Unlock' : '🔒 Lock'}</button>` : ''}
         </div>
 
         <div class="heartbeat-bar" title="Last 30 polls">${hbTicks}</div>
