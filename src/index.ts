@@ -38,6 +38,12 @@ function log(type: string, barrier: string, details: string, latencyMs?: number)
   // Persist
   try { fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n'); } catch {}
   console.log(`[barrier] [${type}] ${barrier}: ${details}${latencyMs ? ` (${latencyMs}ms)` : ''}`);
+  // Broadcast to WS clients
+  try { broadcast({ type: 'log', entry }); } catch {}
+  // Also push full state after actions
+  if (type !== 'startup' && type !== 'pulse-off') {
+    setTimeout(() => broadcastState(), 200);
+  }
 }
 
 // ── Barrier state tracking ──
@@ -146,6 +152,20 @@ app.get('/api/svc/relay/:host', async (req, res) => {
     res.json({ ok: true, ms, host });
   } catch (e: any) {
     res.json({ ok: false, error: e.message, host });
+  }
+});
+
+// ── Raw relay board read (all 8 coils) ──
+app.get('/api/relay/:host/coils', async (req, res) => {
+  const host = req.params.host;
+  const port = 4196;
+  try {
+    const t0 = Date.now();
+    const coils = await readCoils(host, port, 0, 8);
+    const ms = Date.now() - t0;
+    res.json({ host, coils, latencyMs: ms });
+  } catch (err: any) {
+    res.json({ host, error: err.message });
   }
 });
 
@@ -356,6 +376,72 @@ app.post('/api/emergency-off', async (_req, res) => {
   }
 });
 
-app.listen(API_PORT, '0.0.0.0', () => {
-  log('startup', 'system', `Barrier Control listening on port ${API_PORT}, ${BARRIERS.length} barriers configured`);
+// ── WebSocket for real-time updates ──
+import { createServer } from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+
+const server = createServer(app);
+const wss = new WebSocketServer({ server, path: '/ws' });
+
+const clients = new Set<WebSocket>();
+wss.on('connection', (ws) => {
+  clients.add(ws);
+  ws.on('close', () => clients.delete(ws));
+  ws.on('error', () => clients.delete(ws));
+  // Send initial state
+  broadcastState();
+});
+
+function broadcast(data: any) {
+  const msg = JSON.stringify(data);
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+  }
+}
+
+async function broadcastState() {
+  try {
+    // Read all relay boards
+    const relayBoards: Record<string, boolean[] | string> = {};
+    const relayHosts = [...new Set(BARRIERS.map(b => b.relay.host))];
+    
+    for (const host of relayHosts) {
+      try {
+        const coils = await readCoils(host, 4196, 0, 8);
+        relayBoards[host] = coils;
+      } catch (err: any) {
+        relayBoards[host] = err.message;
+      }
+    }
+
+    // Barrier states
+    const barriers = BARRIERS.map(b => {
+      const state = barrierStates.get(b.id)!;
+      const boardCoils = relayBoards[b.relay.host];
+      const coils = Array.isArray(boardCoils) ? {
+        lift: boardCoils[b.coils.lift],
+        stop: boardCoils[b.coils.stop],
+        close: boardCoils[b.coils.close],
+      } : null;
+      return {
+        id: b.id, numericId: b.numericId, name: b.name, site: b.site, direction: b.direction,
+        coils, locked: state.locked, lastAction: state.lastAction, lastActionTime: state.lastActionTime,
+        error: Array.isArray(boardCoils) ? null : boardCoils,
+      };
+    });
+
+    broadcast({ type: 'state', barriers, relays: relayBoards, timestamp: new Date().toISOString() });
+  } catch {}
+}
+
+// Broadcast state every 2 seconds
+setInterval(broadcastState, 2000);
+
+// Override log to also broadcast events
+const _origLog = log;
+// Wrap log to broadcast
+const origLogFn = log;
+
+server.listen(API_PORT, '0.0.0.0', () => {
+  log('startup', 'system', `Barrier Control listening on port ${API_PORT}, ${BARRIERS.length} barriers configured, WebSocket enabled`);
 });
