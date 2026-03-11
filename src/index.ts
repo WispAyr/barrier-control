@@ -2,12 +2,20 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { BARRIERS, API_PORT, BarrierConfig } from './config';
-import { writeCoil, readCoils, writeMultipleCoils } from './modbus-client';
+import { writeCoil, readCoils, atomicBarrierWrite, atomicAllOff } from './modbus-client';
 
 const app = express();
 app.use(express.json());
 
-// ── Event Log (ring buffer) ──
+// ── CORS ──
+app.use((_req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  next();
+});
+
+// ── Event Log (ring buffer + rotating file) ──
 interface LogEntry {
   time: string;
   type: string;
@@ -16,12 +24,14 @@ interface LogEntry {
   latencyMs?: number;
 }
 const MAX_LOG = 2000;
+const MAX_LOG_FILE_BYTES = 2 * 1024 * 1024; // 2MB before rotation
 const eventLog: LogEntry[] = [];
-const LOG_FILE = path.join(__dirname, '..', 'data', 'activity.jsonl');
+const DATA_DIR = path.join(__dirname, '..', 'data');
+const LOG_FILE = path.join(DATA_DIR, 'activity.jsonl');
 
 // Load persisted log on startup
 try {
-  fs.mkdirSync(path.join(__dirname, '..', 'data'), { recursive: true });
+  fs.mkdirSync(DATA_DIR, { recursive: true });
   if (fs.existsSync(LOG_FILE)) {
     const lines = fs.readFileSync(LOG_FILE, 'utf-8').trim().split('\n').filter(Boolean);
     for (const line of lines.slice(-MAX_LOG)) {
@@ -31,19 +41,26 @@ try {
   }
 } catch {}
 
+function rotateLogIfNeeded() {
+  try {
+    const stat = fs.statSync(LOG_FILE);
+    if (stat.size > MAX_LOG_FILE_BYTES) {
+      const rotated = LOG_FILE + '.1';
+      try { fs.unlinkSync(rotated); } catch {}
+      fs.renameSync(LOG_FILE, rotated);
+    }
+  } catch {}
+}
+
 function log(type: string, barrier: string, details: string, latencyMs?: number) {
   const entry: LogEntry = { time: new Date().toISOString(), type, barrier, details, latencyMs };
   eventLog.unshift(entry);
   if (eventLog.length > MAX_LOG) eventLog.pop();
-  // Persist
-  try { fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n'); } catch {}
+  try {
+    fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n');
+    rotateLogIfNeeded();
+  } catch {}
   console.log(`[barrier] [${type}] ${barrier}: ${details}${latencyMs ? ` (${latencyMs}ms)` : ''}`);
-  // Broadcast to WS clients
-  try { broadcast({ type: 'log', entry }); } catch {}
-  // Also push full state after actions
-  if (type !== 'startup' && type !== 'pulse-off') {
-    setTimeout(() => broadcastState(), 200);
-  }
 }
 
 // ── Barrier state tracking ──
@@ -51,9 +68,10 @@ interface BarrierState {
   locked: boolean;
   lastAction: string | null;
   lastActionTime: string | null;
+  latchedAction: 'lift' | 'close' | null; // track what's latched
 }
 const barrierStates = new Map<string, BarrierState>();
-BARRIERS.forEach(b => barrierStates.set(b.id, { locked: false, lastAction: null, lastActionTime: null }));
+BARRIERS.forEach(b => barrierStates.set(b.id, { locked: false, lastAction: null, lastActionTime: null, latchedAction: null }));
 
 function findBarrier(barrierId: string): BarrierConfig | undefined {
   const num = parseInt(barrierId);
@@ -61,72 +79,79 @@ function findBarrier(barrierId: string): BarrierConfig | undefined {
   return BARRIERS.find(b => b.id === barrierId);
 }
 
-const PULSE_MS = 1500; // pulse duration for normal operations
+const PULSE_MS = 1500;
 
-// Track which barriers have coils latched (held on)
-const latchedCoils = new Map<string, NodeJS.Timeout | null>(); // barrierId -> null means held indefinitely
+// Track active pulse timeouts so they can be cancelled
+const pulseTimeouts = new Map<string, NodeJS.Timeout>();
 
 async function activateCoil(barrier: BarrierConfig, action: 'lift' | 'stop' | 'close', hold = false): Promise<void> {
   const { host, port } = barrier.relay;
   const coils = barrier.coils;
 
-  // Cancel any existing latch timeout for this barrier
-  const existingTimeout = latchedCoils.get(barrier.id);
-  if (existingTimeout) clearTimeout(existingTimeout);
-  latchedCoils.delete(barrier.id);
+  // Cancel any pending pulse-off for THIS barrier
+  const existingPulse = pulseTimeouts.get(barrier.id);
+  if (existingPulse) {
+    clearTimeout(existingPulse);
+    pulseTimeouts.delete(barrier.id);
+  }
 
-  // Clear all coils first
-  await writeMultipleCoils(host, port, [
-    { coil: coils.lift, value: false },
-    { coil: coils.stop, value: false },
-    { coil: coils.close, value: false },
-  ]);
-
-  // Small gap to ensure clean transition
-  await new Promise(r => setTimeout(r, 50));
-
-  // Set the target coil
   const targetCoil = coils[action];
-  await writeCoil(host, port, targetCoil, true);
+  const barrierCoils = [coils.lift, coils.stop, coils.close];
+
+  // Atomic: clear this barrier's coils then set the target — single mutex lock
+  await atomicBarrierWrite(host, port, barrierCoils, targetCoil, true);
 
   if (hold) {
-    // Hold coil on indefinitely (latch mode)
-    latchedCoils.set(barrier.id, null);
+    // Latch: coil stays on, no auto-release
     log('latch', barrier.id, `${action} coil HELD ON (latched)`);
   } else {
-    // Auto-release after pulse duration
+    // Pulse: auto-release after PULSE_MS
     const timeout = setTimeout(async () => {
+      pulseTimeouts.delete(barrier.id);
       try {
         await writeCoil(host, port, targetCoil, false);
-        latchedCoils.delete(barrier.id);
-        log('pulse-off', barrier.id, `${action} coil auto-released after ${PULSE_MS}ms`);
+        log('pulse-off', barrier.id, `${action} coil released after ${PULSE_MS}ms`);
       } catch (err: any) {
-        log('error', barrier.id, `Failed to release ${action} coil: ${err.message}`);
+        log('error', barrier.id, `PULSE-OFF FAILED for ${action} coil ${targetCoil} — coil may be stuck ON: ${err.message}`);
+        // Retry once after a short delay
+        setTimeout(async () => {
+          try {
+            await writeCoil(host, port, targetCoil, false);
+            log('pulse-off-retry', barrier.id, `${action} coil released on retry`);
+          } catch (err2: any) {
+            log('error', barrier.id, `PULSE-OFF RETRY FAILED — coil ${targetCoil} STUCK ON: ${err2.message}`);
+          }
+        }, 500);
       }
     }, PULSE_MS);
-    latchedCoils.set(barrier.id, timeout);
+    pulseTimeouts.set(barrier.id, timeout);
   }
 }
 
-// Release a latched coil
 async function releaseLatch(barrier: BarrierConfig): Promise<void> {
   const { host, port } = barrier.relay;
   const coils = barrier.coils;
-  const existingTimeout = latchedCoils.get(barrier.id);
-  if (existingTimeout) clearTimeout(existingTimeout);
-  latchedCoils.delete(barrier.id);
-  await writeMultipleCoils(host, port, [
-    { coil: coils.lift, value: false },
-    { coil: coils.stop, value: false },
-    { coil: coils.close, value: false },
-  ]);
+
+  // Cancel any pending pulse
+  const existingPulse = pulseTimeouts.get(barrier.id);
+  if (existingPulse) {
+    clearTimeout(existingPulse);
+    pulseTimeouts.delete(barrier.id);
+  }
+
+  // Atomic: turn off all this barrier's coils
+  await atomicAllOff(host, port, [coils.lift, coils.stop, coils.close]);
   log('unlatch', barrier.id, 'All coils released');
 }
 
 // ── Dashboard ──
 app.get('/', (_req, res) => {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'dashboard.html'), 'utf-8');
-  res.type('html').send(html);
+  try {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'dashboard.html'), 'utf-8');
+    res.type('html').send(html);
+  } catch {
+    res.status(404).send('Dashboard not found');
+  }
 });
 
 // ── Service health proxy endpoints (for dashboard) ──
@@ -155,20 +180,6 @@ app.get('/api/svc/relay/:host', async (req, res) => {
   }
 });
 
-// ── Raw relay board read (all 8 coils) ──
-app.get('/api/relay/:host/coils', async (req, res) => {
-  const host = req.params.host;
-  const port = 4196;
-  try {
-    const t0 = Date.now();
-    const coils = await readCoils(host, port, 0, 8);
-    const ms = Date.now() - t0;
-    res.json({ host, coils, latencyMs: ms });
-  } catch (err: any) {
-    res.json({ host, error: err.message });
-  }
-});
-
 // ── Health ──
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime(), barriers: BARRIERS.length, logSize: eventLog.length });
@@ -188,48 +199,38 @@ app.get('/api/log', (req, res) => {
 // ── Status - all barriers (serialized per relay board) ──
 app.get('/api/status', async (_req, res) => {
   try {
-    // Group barriers by relay board to serialize reads on same connection
-    const byRelay = new Map<string, typeof BARRIERS>();
-    for (const b of BARRIERS) {
-      const k = `${b.relay.host}:${b.relay.port}`;
-      if (!byRelay.has(k)) byRelay.set(k, []);
-      byRelay.get(k)!.push(b);
-    }
-
     const results = new Map<string, any>();
 
-    // Read each relay board's barriers serially, but boards in parallel
-    await Promise.allSettled(
-      Array.from(byRelay.entries()).map(async ([_relayKey, boardBarriers]) => {
-        for (const b of boardBarriers) {
-          const t0 = Date.now();
-          try {
-            const { host, port } = b.relay;
-            const minCoil = Math.min(b.coils.lift, b.coils.stop, b.coils.close);
-            const maxCoil = Math.max(b.coils.lift, b.coils.stop, b.coils.close);
-            const count = maxCoil - minCoil + 1;
-            const coilStates = await readCoils(host, port, minCoil, count);
-            const ms = Date.now() - t0;
-            const state = barrierStates.get(b.id)!;
-            results.set(b.id, {
-              id: b.id, numericId: b.numericId, name: b.name, site: b.site, direction: b.direction,
-              coils: {
-                lift: coilStates[b.coils.lift - minCoil],
-                stop: coilStates[b.coils.stop - minCoil],
-                close: coilStates[b.coils.close - minCoil],
-              },
-              locked: state.locked,
-              lastAction: state.lastAction,
-              lastActionTime: state.lastActionTime,
-              latencyMs: ms,
-            });
-          } catch (err: any) {
-            log('error', b.id, `Status read failed: ${err.message}`);
-            results.set(b.id, { id: b.id, numericId: b.numericId, name: b.name, error: err.message });
-          }
-        }
-      })
-    );
+    // Read barriers sequentially per board (mutex handles serialisation,
+    // but we avoid unnecessary parallel pressure on the same board)
+    for (const b of BARRIERS) {
+      const t0 = Date.now();
+      try {
+        const { host, port } = b.relay;
+        const minCoil = Math.min(b.coils.lift, b.coils.stop, b.coils.close);
+        const maxCoil = Math.max(b.coils.lift, b.coils.stop, b.coils.close);
+        const count = maxCoil - minCoil + 1;
+        const coilStates = await readCoils(host, port, minCoil, count);
+        const ms = Date.now() - t0;
+        const state = barrierStates.get(b.id)!;
+        results.set(b.id, {
+          id: b.id, numericId: b.numericId, name: b.name, site: b.site, direction: b.direction,
+          coils: {
+            lift: coilStates[b.coils.lift - minCoil],
+            stop: coilStates[b.coils.stop - minCoil],
+            close: coilStates[b.coils.close - minCoil],
+          },
+          locked: state.locked,
+          latchedAction: state.latchedAction,
+          lastAction: state.lastAction,
+          lastActionTime: state.lastActionTime,
+          latencyMs: ms,
+        });
+      } catch (err: any) {
+        log('error', b.id, `Status read failed: ${err.message}`);
+        results.set(b.id, { id: b.id, numericId: b.numericId, name: b.name, error: err.message });
+      }
+    }
 
     const barriers = BARRIERS.map(b => results.get(b.id) || { id: b.id, error: 'Unknown' });
     res.json({ barriers });
@@ -261,14 +262,14 @@ app.get('/api/barrier/:barrierId/relay-status', async (req, res) => {
   }
 });
 
-// ── Barrier actions ──
+// ── Barrier actions (pulse) ──
 for (const action of ['lift', 'close', 'stop'] as const) {
   app.post(`/api/barrier/:barrierId/${action}`, async (req, res) => {
     const barrier = findBarrier(req.params.barrierId);
     if (!barrier) return res.status(404).json({ error: 'Barrier not found' });
     const state = barrierStates.get(barrier.id)!;
     if (state.locked && action !== 'stop') {
-      log('error', barrier.id, `Action ${action} denied — barrier locked`);
+      log('blocked', barrier.id, `Action ${action} denied — barrier locked`);
       return res.status(423).json({ error: 'Barrier is locked', barrierId: barrier.id });
     }
     const t0 = Date.now();
@@ -291,12 +292,19 @@ for (const action of ['lift', 'close', 'stop'] as const) {
 app.post('/api/barrier/:barrierId/latch-open', async (req, res) => {
   const barrier = findBarrier(req.params.barrierId);
   if (!barrier) return res.status(404).json({ error: 'Barrier not found' });
+  const state = barrierStates.get(barrier.id)!;
+
+  // Must unlatch first if already latched to something different
+  if (state.latchedAction && state.latchedAction !== 'lift') {
+    return res.status(409).json({ error: `Already latched ${state.latchedAction} — unlatch first`, barrierId: barrier.id });
+  }
+
   try {
     await activateCoil(barrier, 'lift', true);
-    const state = barrierStates.get(barrier.id)!;
     state.lastAction = 'latch-open';
     state.lastActionTime = new Date().toISOString();
     state.locked = true;
+    state.latchedAction = 'lift';
     log('latch-open', barrier.id, 'Barrier LATCHED OPEN — coil held, commands locked');
     res.json({ ok: true, barrierId: barrier.id, action: 'latch-open' });
   } catch (err: any) {
@@ -308,12 +316,18 @@ app.post('/api/barrier/:barrierId/latch-open', async (req, res) => {
 app.post('/api/barrier/:barrierId/latch-close', async (req, res) => {
   const barrier = findBarrier(req.params.barrierId);
   if (!barrier) return res.status(404).json({ error: 'Barrier not found' });
+  const state = barrierStates.get(barrier.id)!;
+
+  if (state.latchedAction && state.latchedAction !== 'close') {
+    return res.status(409).json({ error: `Already latched ${state.latchedAction} — unlatch first`, barrierId: barrier.id });
+  }
+
   try {
     await activateCoil(barrier, 'close', true);
-    const state = barrierStates.get(barrier.id)!;
     state.lastAction = 'latch-close';
     state.lastActionTime = new Date().toISOString();
     state.locked = true;
+    state.latchedAction = 'close';
     log('latch-close', barrier.id, 'Barrier LATCHED CLOSED — coil held, commands locked');
     res.json({ ok: true, barrierId: barrier.id, action: 'latch-close' });
   } catch (err: any) {
@@ -331,6 +345,7 @@ app.post('/api/barrier/:barrierId/unlatch', async (req, res) => {
     state.lastAction = 'unlatch';
     state.lastActionTime = new Date().toISOString();
     state.locked = false;
+    state.latchedAction = null;
     log('unlatch', barrier.id, 'Barrier UNLATCHED — coils released, commands unlocked');
     res.json({ ok: true, barrierId: barrier.id, action: 'unlatch' });
   } catch (err: any) {
@@ -351,7 +366,8 @@ app.post('/api/barrier/:barrierId/lock', (req, res) => {
 app.post('/api/barrier/:barrierId/unlock', (req, res) => {
   const barrier = findBarrier(req.params.barrierId);
   if (!barrier) return res.status(404).json({ error: 'Barrier not found' });
-  barrierStates.get(barrier.id)!.locked = false;
+  const state = barrierStates.get(barrier.id)!;
+  state.locked = false;
   log('unlock', barrier.id, 'Barrier UNLOCKED');
   res.json({ ok: true, barrierId: barrier.id, locked: false });
 });
@@ -360,14 +376,21 @@ app.post('/api/barrier/:barrierId/unlock', (req, res) => {
 app.post('/api/emergency-off', async (_req, res) => {
   log('emergency-off', 'ALL', '⚠️ EMERGENCY OFF — all coils OFF');
   try {
+    // Collect unique relay boards and turn off all 8 coils atomically per board
     const seen = new Set<string>();
     for (const b of BARRIERS) {
       const k = `${b.relay.host}:${b.relay.port}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      for (let coil = 0; coil < 8; coil++) {
-        await writeCoil(b.relay.host, b.relay.port, coil, false);
-      }
+      await atomicAllOff(b.relay.host, b.relay.port, [0, 1, 2, 3, 4, 5, 6, 7]);
+    }
+    // Clear all state
+    for (const b of BARRIERS) {
+      const state = barrierStates.get(b.id)!;
+      state.locked = false;
+      state.latchedAction = null;
+      const pulse = pulseTimeouts.get(b.id);
+      if (pulse) { clearTimeout(pulse); pulseTimeouts.delete(b.id); }
     }
     res.json({ ok: true, action: 'emergency-off' });
   } catch (err: any) {
@@ -376,72 +399,6 @@ app.post('/api/emergency-off', async (_req, res) => {
   }
 });
 
-// ── WebSocket for real-time updates ──
-import { createServer } from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
-
-const server = createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
-
-const clients = new Set<WebSocket>();
-wss.on('connection', (ws) => {
-  clients.add(ws);
-  ws.on('close', () => clients.delete(ws));
-  ws.on('error', () => clients.delete(ws));
-  // Send initial state
-  broadcastState();
-});
-
-function broadcast(data: any) {
-  const msg = JSON.stringify(data);
-  for (const ws of clients) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(msg);
-  }
-}
-
-async function broadcastState() {
-  try {
-    // Read all relay boards
-    const relayBoards: Record<string, boolean[] | string> = {};
-    const relayHosts = [...new Set(BARRIERS.map(b => b.relay.host))];
-    
-    for (const host of relayHosts) {
-      try {
-        const coils = await readCoils(host, 4196, 0, 8);
-        relayBoards[host] = coils;
-      } catch (err: any) {
-        relayBoards[host] = err.message;
-      }
-    }
-
-    // Barrier states
-    const barriers = BARRIERS.map(b => {
-      const state = barrierStates.get(b.id)!;
-      const boardCoils = relayBoards[b.relay.host];
-      const coils = Array.isArray(boardCoils) ? {
-        lift: boardCoils[b.coils.lift],
-        stop: boardCoils[b.coils.stop],
-        close: boardCoils[b.coils.close],
-      } : null;
-      return {
-        id: b.id, numericId: b.numericId, name: b.name, site: b.site, direction: b.direction,
-        coils, locked: state.locked, lastAction: state.lastAction, lastActionTime: state.lastActionTime,
-        error: Array.isArray(boardCoils) ? null : boardCoils,
-      };
-    });
-
-    broadcast({ type: 'state', barriers, relays: relayBoards, timestamp: new Date().toISOString() });
-  } catch {}
-}
-
-// Broadcast state every 2 seconds
-setInterval(broadcastState, 2000);
-
-// Override log to also broadcast events
-const _origLog = log;
-// Wrap log to broadcast
-const origLogFn = log;
-
-server.listen(API_PORT, '0.0.0.0', () => {
-  log('startup', 'system', `Barrier Control listening on port ${API_PORT}, ${BARRIERS.length} barriers configured, WebSocket enabled`);
+app.listen(API_PORT, '0.0.0.0', () => {
+  log('startup', 'system', `Barrier Control v1.1 listening on port ${API_PORT}, ${BARRIERS.length} barriers configured`);
 });
